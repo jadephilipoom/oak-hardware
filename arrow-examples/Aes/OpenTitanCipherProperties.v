@@ -127,3 +127,87 @@ End Equivalence.
 Hint Rewrite @key_expand_and_round_correct @unrolled_cipher_correct
      @unrolled_cipher_flat_correct using solve [eauto] : kappa_interp.
 Global Opaque key_expand_and_round unrolled_cipher unrolled_cipher_flat.
+
+Require Import Coq.Lists.List.
+Import ListNotations.
+(* TODO: copied from spec, link this to actual spec once everything is under silveroak-opentitan *)
+Notation state := (Vector.t (Vector.t (Vector.t bool 8) 4) 4) (only parsing).
+Notation key := (Vector.t (Vector.t (Vector.t bool 8) 4) 4) (only parsing).
+Axiom sbox : pkg.SboxImpl.
+Definition add_round_key : state -> key -> state :=
+  @bitwise (Vector (Vector (Vector Bit 8) 4) 4) (fun a b => xorb a b).
+Definition sub_bytes : state -> state := aes_sub_bytes_spec sbox false.
+Definition shift_rows : state -> state := aes_shift_rows_spec false.
+Definition mix_columns : state -> state := aes_mix_columns_spec false.
+Definition inv_sub_bytes : state -> state := aes_sub_bytes_spec sbox true.
+Definition inv_shift_rows : state -> state := aes_shift_rows_spec true.
+Definition inv_mix_columns : state -> state := aes_mix_columns_spec true.
+Definition inv_mix_columns_key : key -> key := aes_mix_columns_spec true.
+
+  Definition equivalent_inverse_cipher
+             (first_key last_key : key) (middle_keys : list key)
+             (input : state) : state :=
+    let st := input in
+    let st := add_round_key st first_key in
+    let st := List.fold_left
+                (fun (st : state) (round_key : key) =>
+                   let st := inv_sub_bytes st in
+                   let st := inv_shift_rows st in
+                   let st := inv_mix_columns st in
+                   let st := add_round_key st round_key in
+                   st)
+                middle_keys st in
+    let st := inv_sub_bytes st in
+    let st := inv_shift_rows st in
+    let st := add_round_key st last_key in
+    st.
+
+  Definition cipher (first_key last_key : key) (middle_keys : list key)
+             (input : state) : state :=
+    let st := input in
+    let st := add_round_key st first_key in
+    let st := List.fold_left
+                (fun (st : state) (round_key : key) =>
+                   let st := sub_bytes st in
+                   let st := shift_rows st in
+                   let st := mix_columns st in
+                   let st := add_round_key st round_key in
+                   st)
+                middle_keys st in
+    let st := sub_bytes st in
+    let st := shift_rows st in
+    let st := add_round_key st last_key in
+    st.
+
+  Print unrolled_cipher_flat_spec.
+  Notation keypair := (Vector.t (Vector.t (Vector.t bool 8) 4) 8).
+  Axiom unpair : keypair -> key * key.
+  About List.fold_left.
+  Definition all_keys
+             (key_expand : pkg.SboxImpl ->
+                           bool -> Vector.t bool 4 (* round *)
+                           -> Vector.t bool 8 (* rcon *)
+                           -> keypair
+                           -> Vector.t bool 8 * keypair)
+             (nrounds : nat)
+             (op_i : bool)
+             (initial_rcon : Vector.t bool 8)
+             (initial_key : keypair)
+    : list key :=
+    let result :=
+        List.fold_left
+          (fun '(out, rcon, round_key) round_i =>
+             let round := Ndigits.N2Bv_sized 4 (BinNat.N.of_nat round_i) in
+             let '(rcon, round_key) := key_expand sbox op_i round rcon round_key in
+             ((out ++ [round_key])%list, rcon, round_key))
+          (List.seq 0 nrounds)
+          ([initial_key], initial_rcon, initial_key) in
+    List.map (fun k => if op_i
+                    then fst (unpair k)
+                    else snd (unpair k)) (fst (fst result)).
+
+  Lemma __ key_expand nrounds initial_keypair first_key last_key middle_keys input :
+    all_keys key_expand nrounds false (Ndigits.N2Bv_sized _ (BinNat.N.of_nat 1)) initial_keypair
+    = first_key :: middle_keys ++ [last_key] ->
+    unrolled_cipher_flat_spec key_expand sbox false input
+    = cipher first_key last_key middle_keys input.
