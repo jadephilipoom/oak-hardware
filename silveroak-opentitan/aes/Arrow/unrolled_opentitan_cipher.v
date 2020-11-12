@@ -112,7 +112,7 @@ Definition aes_key_expand
       end *)
     let regular =
       if round_id == #0
-      then concat key_i[:7:4] key_i[:3:0]
+      then key_i
       else
         if op_i == !CIPH_FWD
         then
@@ -209,7 +209,7 @@ Definition unrolled_cipher
     (* OpenTitan runs the AES cipher core forwards to generate the decryption
     keys. Since this is an unrolled variant we just duplicate the core logic *)
     let rcon_initial = #1 in
-    let forward_keys = concat key_i[:7:4] key_i[:3:0] in
+    let forward_keys = key_i in
 
     let '(_, fwd_end_state) =
       !(foldl (n:=14) (key_expand_and_round sbox_impl))
@@ -217,7 +217,7 @@ Definition unrolled_cipher
     let '(data_i', key') = snd fwd_end_state in
     let forward_o = !(final_cipher_round sbox_impl) !CIPH_FWD data_i' (!aes_transpose key'[:7:4]) in
 
-    let backward_keys = concat key'[:7:4] key'[:3:0] in
+    let backward_keys = key' in
 
     let '(_, bkw_end_state) =
       !(foldl (n:=14) (key_expand_and_round sbox_impl))
