@@ -31,6 +31,7 @@ Require Import Cava.VectorUtils.
 Require Import Cava.Acorn.Acorn.
 Require Import Cava.Lib.BitVectorOps.
 Require Import AcornAes.Pkg.
+Require Import AesSpec.AES256.
 Require Import AesSpec.Tests.CipherTest.
 Require Import AesSpec.Tests.Common.
 Require Import AesSpec.StateTypeConversions.
@@ -91,23 +92,22 @@ Require Import AesSpec.StateTypeConversions.
 
 Import List.ListNotations.
 Goal
-  (let signal := combType in
-  let to_state : Vector.t bool 128 -> signal state :=
-      fun st => Vector.map (Vector.map (fun r => byte_to_bitvec r)) (BigEndian.to_rows st) in
-  let from_state : signal state -> Vector.t bool 128 :=
-      fun st => BigEndian.from_rows (Vector.map (Vector.map (fun r => bitvec_to_byte r)) st) in
-
-   (* run encrypt test with this version of aes_mix_columns plugged in *)
-   aes_test_encrypt Matrix
-                    (fun step key =>
-                       match step with
-                       | ShiftRows =>
-                         fun st =>
-                           let input := to_state st in
-                           let output := unIdent (aes_shift_rows [false]%list [input]%list) in
-                           from_state (List.hd (defaultCombValue _) output)
-                       | _ => aes_impl step key
-                       end) = Success).
+  ( (* run encrypt test with this version of aes_shift_rows plugged in *)
+    aes_test_encrypt Matrix
+                     (fun step key =>
+                        match step with
+                        | ShiftRows =>
+                          fun st =>
+                            let input := from_flat st in
+                            let output := unIdent (aes_shift_rows [false]%list [input]%list) in
+                            to_flat (List.hd (defaultCombValue _) output)
+                        | InvShiftRows =>
+                          fun st =>
+                            let input := from_flat st in
+                            let output := unIdent (aes_shift_rows [true]%list [input]%list) in
+                            to_flat (List.hd (defaultCombValue _) output)
+                        | _ => aes_impl step key
+                        end) = Success).
 Proof. vm_compute. reflexivity. Qed.
 
 Definition shiftRowsTestVec : Vector.t (Vector.t nat 4) 4
