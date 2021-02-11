@@ -60,6 +60,15 @@ Section Equivalence.
     case x, x0, x1, x2, x3, x4, x5, x6; vm_compute; reflexivity.
   Qed.
 
+  Lemma sub_bytes_bytewise is_decrypt b :
+    unIdent (aes_sbox_lut [is_decrypt] [b])
+    = [byte_to_bitvec
+         ((if is_decrypt then Sbox.inverse_sbox else Sbox.forward_sbox)
+            (bitvec_to_byte b))].
+  Proof.
+    destruct is_decrypt; auto using sub_bytes_fwd_bytewise, sub_bytes_inv_bytewise.
+  Qed.
+
   Definition byte_0 : byte := byte_to_bitvec Byte.x00.
 
   Definition state_map_no_monad (f : byte -> list byte) (st : state) : list (state) :=
@@ -158,39 +167,22 @@ Section Equivalence.
     constant_vector_simpl x2.
     clear.
 
-    (* FIXME: doing this after next cbv takes a long, long time.
-       Probably related to below immplicit problem. *)
+    (* replace aes_sbox_lut with Sbox.forward_sbox and Sbox.inverse_sbox *)
+    match goal with
+      | |- context [map ?f ?v] =>
+        match f with
+        | context [aes_sbox_lut] =>
+          erewrite (map_ext _ _ f)
+            by (intros; apply map_ext; intros;
+                rewrite sub_bytes_bytewise;
+                cbn [List.hd]; reflexivity)
+        end
+    end.
+
     destruct is_decrypt.
-
-    (* clear things down to what we need for the other lemmas. It takes far too
-       much computation to do this before simplifying conversions *)
-    all: cbv - [List.hd
-                byte_0
-                unIdent
-                aes_sbox_lut
-                byte_to_bitvec
-                Sbox.inverse_sbox
-                Sbox.forward_sbox
-                bitvec_to_byte
-                x3 x4 x5 x6 x7 x8 x9 x10 x11 x12 x13 x14 x15 x16 x17 x18].
-
-    (* FIXME: this should work, but it is taking a really, really long time. I
-       suspect this is due to very large implicit arguments after the above
-       cbv 'hack' (unfold to where I want you to!). So maybe it's just a bad
-       approach, but I can't even 'Set Printing Implicit', because it takes too
-       long. *)
-    (* takes too long:
-    {
-      rewrite ! sub_bytes_inv_bytewise.
-      cbv [List.hd].
-      reflexivity.
-    }
-    {
-      rewrite ! sub_bytes_fwd_bytewise.
-      cbv [List.hd].
-      reflexivity.
-    }
-     *)
-  Admitted.
+    all:repeat first [ progress cbn [List.map map]
+                     | progress autorewrite with push_to_list push_of_list_sized ].
+    all:reflexivity.
+  Qed.
 
 End Equivalence.
